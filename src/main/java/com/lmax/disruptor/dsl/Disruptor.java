@@ -18,6 +18,7 @@ package com.lmax.disruptor.dsl;
 import com.lmax.disruptor.BatchEventProcessor;
 import com.lmax.disruptor.BatchEventProcessorBuilder;
 import com.lmax.disruptor.BatchRewindStrategy;
+import com.lmax.disruptor.BufferFullPolicy;
 import com.lmax.disruptor.EventFactory;
 import com.lmax.disruptor.EventHandler;
 import com.lmax.disruptor.EventHandlerIdentity;
@@ -98,6 +99,30 @@ public class Disruptor<T>
     {
         this(
             RingBuffer.create(producerType, eventFactory, ringBufferSize, waitStrategy),
+            threadFactory);
+    }
+
+    /**
+     * Create a new Disruptor.
+     *
+     * @param eventFactory     the factory to create events in the ring buffer.
+     * @param ringBufferSize   the size of the ring buffer, must be power of 2.
+     * @param threadFactory    a {@link ThreadFactory} to create threads for processors.
+     * @param producerType     the claim strategy to use for the ring buffer.
+     * @param waitStrategy     the wait strategy to use for the ring buffer.
+     * @param bufferFullPolicy the policy to apply when the ring buffer is full, fixed for
+     *                         the lifetime of the ring buffer.
+     */
+    public Disruptor(
+            final EventFactory<T> eventFactory,
+            final int ringBufferSize,
+            final ThreadFactory threadFactory,
+            final ProducerType producerType,
+            final WaitStrategy waitStrategy,
+            final BufferFullPolicy bufferFullPolicy)
+    {
+        this(
+            RingBuffer.create(producerType, eventFactory, ringBufferSize, waitStrategy, bufferFullPolicy),
             threadFactory);
     }
 

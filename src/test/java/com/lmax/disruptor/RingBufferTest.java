@@ -28,6 +28,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.LockSupport;
 
 import static com.lmax.disruptor.RingBuffer.createMultiProducer;
 import static com.lmax.disruptor.RingBufferEventMatcher.ringBufferWithEvents;
@@ -142,6 +143,106 @@ public class RingBufferTest
         }
 
         assertThrows(InsufficientCapacityException.class, ringBuffer::tryNext);
+    }
+
+    @Test
+    public void shouldDefaultToBlockPolicyAndDropNothing()
+    {
+        assertThat(ringBuffer.getBufferFullPolicy(), is(BufferFullPolicy.BLOCK));
+        assertThat(ringBuffer.getDroppedEventCount(), is(0L));
+    }
+
+    @Test
+    public void shouldDropAndCountEventsWhenBufferIsFull()
+    {
+        final int bufferSize = 4;
+        final RingBuffer<StubEvent> droppingBuffer = RingBuffer.createSingleProducer(
+            StubEvent.EVENT_FACTORY, bufferSize, new BlockingWaitStrategy(), BufferFullPolicy.DROP);
+        droppingBuffer.addGatingSequences(new Sequence(Sequence.INITIAL_VALUE));
+
+        final int eventCount = 10;
+        for (int i = 0; i < eventCount; i++)
+        {
+            droppingBuffer.publishEvent(StubEvent.TRANSLATOR, i, "test");
+        }
+
+        assertThat(droppingBuffer.getDroppedEventCount(), is((long) eventCount - bufferSize));
+
+        for (int i = 0; i < bufferSize; i++)
+        {
+            assertThat(droppingBuffer.get(i).getValue(), is(i));
+        }
+    }
+
+    @Test
+    public void shouldCountWholeBatchAsDroppedWhenItDoesNotFit()
+    {
+        final RingBuffer<StubEvent> droppingBuffer = RingBuffer.createSingleProducer(
+            StubEvent.EVENT_FACTORY, 4, new BlockingWaitStrategy(), BufferFullPolicy.DROP);
+        droppingBuffer.addGatingSequences(new Sequence(Sequence.INITIAL_VALUE));
+
+        for (int i = 0; i < 3; i++)
+        {
+            droppingBuffer.publishEvent(StubEvent.TRANSLATOR, i, "test");
+        }
+
+        droppingBuffer.publishEvents(StubEvent.TRANSLATOR, new Integer[]{8, 9}, new String[]{"a", "b"});
+        assertThat(droppingBuffer.getDroppedEventCount(), is(2L));
+
+        droppingBuffer.publishEvent(StubEvent.TRANSLATOR, 3, "test");
+        assertThat(droppingBuffer.getDroppedEventCount(), is(2L));
+        assertThat(droppingBuffer.get(3).getValue(), is(3));
+    }
+
+    @Test
+    public void shouldDropEventsInsteadOfBlockingWhenProducerOutpacesConsumer() throws Exception
+    {
+        final int bufferSize = 16;
+        final RingBuffer<StubEvent> droppingBuffer = RingBuffer.createSingleProducer(
+            StubEvent.EVENT_FACTORY, bufferSize, new BlockingWaitStrategy(), BufferFullPolicy.DROP);
+        final Sequence gatingSequence = new Sequence(Sequence.INITIAL_VALUE);
+        droppingBuffer.addGatingSequences(gatingSequence);
+
+        final int eventCount = 1000;
+        final AtomicBoolean consumerDone = new AtomicBoolean(false);
+        final long[] consumedCount = new long[1];
+        final int[] lastSeenValue = new int[]{-1};
+
+        final Thread consumer = new Thread(
+            () ->
+            {
+                long nextSequence = 0;
+                while (!consumerDone.get() || nextSequence <= droppingBuffer.getCursor())
+                {
+                    final long availableSequence = droppingBuffer.getCursor();
+                    while (nextSequence <= availableSequence)
+                    {
+                        final int value = droppingBuffer.get(nextSequence).getValue();
+                        assertTrue(value > lastSeenValue[0], "events must not be overwritten or interleaved");
+                        lastSeenValue[0] = value;
+                        nextSequence++;
+                        consumedCount[0]++;
+                    }
+                    gatingSequence.set(nextSequence - 1);
+                    LockSupport.parkNanos(1_000_000L);
+                }
+            });
+        consumer.start();
+
+        for (int i = 0; i < eventCount; i++)
+        {
+            droppingBuffer.publishEvent(StubEvent.TRANSLATOR, i, "test");
+        }
+
+        consumerDone.set(true);
+        consumer.join();
+
+        System.out.printf(
+            "DROP policy under write peak: published=%d, consumed=%d, dropped=%d%n",
+            eventCount, consumedCount[0], droppingBuffer.getDroppedEventCount());
+
+        assertThat(droppingBuffer.getDroppedEventCount() + consumedCount[0], is((long) eventCount));
+        assertTrue(droppingBuffer.getDroppedEventCount() > 0, "expected the write peak to cause drops");
     }
 
     @Test
