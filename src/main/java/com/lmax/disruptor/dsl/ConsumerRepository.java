@@ -20,6 +20,7 @@ import com.lmax.disruptor.EventHandlerIdentity;
 import com.lmax.disruptor.EventProcessor;
 import com.lmax.disruptor.Sequence;
 import com.lmax.disruptor.SequenceBarrier;
+import com.lmax.disruptor.WorkerPool;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -54,6 +55,16 @@ class ConsumerRepository
         final EventProcessorInfo consumerInfo = new EventProcessorInfo(processor, null);
         eventProcessorInfoBySequence.put(processor.getSequence(), consumerInfo);
         consumerInfos.add(consumerInfo);
+    }
+
+    public void add(final WorkerPool<?> workerPool, final SequenceBarrier sequenceBarrier)
+    {
+        final WorkerPoolInfo<?> workerPoolInfo = new WorkerPoolInfo<>(workerPool, sequenceBarrier);
+        consumerInfos.add(workerPoolInfo);
+        for (final Sequence sequence : workerPool.getWorkerSequences())
+        {
+            eventProcessorInfoBySequence.put(sequence, workerPoolInfo);
+        }
     }
 
     public void startAll(final ThreadFactory threadFactory)
