@@ -11,6 +11,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
 import static org.hamcrest.CoreMatchers.is;
@@ -42,12 +43,20 @@ public class SequencerTest
 
     private static Sequencer newProducer(final ProducerType producerType, final WaitStrategy waitStrategy)
     {
+        return newProducer(producerType, waitStrategy, new LowLatencyProducerWaitStrategy());
+    }
+
+    private static Sequencer newProducer(
+        final ProducerType producerType,
+        final WaitStrategy waitStrategy,
+        final ProducerWaitStrategy producerWaitStrategy)
+    {
         switch (producerType)
         {
             case SINGLE:
-                return new SingleProducerSequencer(BUFFER_SIZE, waitStrategy);
+                return new SingleProducerSequencer(BUFFER_SIZE, waitStrategy, producerWaitStrategy);
             case MULTI:
-                return new MultiProducerSequencer(BUFFER_SIZE, waitStrategy);
+                return new MultiProducerSequencer(BUFFER_SIZE, waitStrategy, producerWaitStrategy);
             default:
                 throw new IllegalStateException(producerType.toString());
         }
@@ -144,6 +153,28 @@ public class SequencerTest
 
         doneLatch.await();
         assertThat(sequencer.getHighestPublishedSequence(expectedFullSequence, sequencer.getCursor()), is(expectedFullSequence + 1L));
+    }
+
+    @ParameterizedTest
+    @MethodSource("producerTypeGenerator")
+    public void shouldUseConfiguredProducerWaitStrategyWhenBufferIsFull(final ProducerType producerType)
+    {
+        final AtomicInteger waitCalls = new AtomicInteger();
+        final ProducerWaitStrategy producerWaitStrategy = (sequence, cursorSequence, gatingSequences) ->
+        {
+            waitCalls.incrementAndGet();
+            gatingSequences[0].set(sequence);
+            return sequence;
+        };
+        final Sequencer sequencer = newProducer(
+            producerType, new BlockingWaitStrategy(), producerWaitStrategy);
+        sequencer.addGatingSequences(gatingSequence);
+
+        final long fullSequence = sequencer.next(BUFFER_SIZE);
+        sequencer.publish(fullSequence - (BUFFER_SIZE - 1), fullSequence);
+
+        assertThat(sequencer.next(), is(fullSequence + 1));
+        assertThat(waitCalls.get(), is(1));
     }
 
     @ParameterizedTest

@@ -126,7 +126,29 @@ public final class RingBuffer<E> extends RingBufferFields<E> implements Cursored
         final int bufferSize,
         final WaitStrategy waitStrategy)
     {
-        MultiProducerSequencer sequencer = new MultiProducerSequencer(bufferSize, waitStrategy);
+        return createMultiProducer(factory, bufferSize, waitStrategy, new LowLatencyProducerWaitStrategy());
+    }
+
+    /**
+     * Create a new multiple producer RingBuffer with the specified wait strategies.
+     *
+     * @param <E> Class of the event stored in the ring buffer.
+     * @param factory              used to create the events within the ring buffer.
+     * @param bufferSize           number of elements to create within the ring buffer.
+     * @param waitStrategy         used to determine how consumers wait for new elements.
+     * @param producerWaitStrategy used to determine how producers wait for capacity.
+     * @return a constructed ring buffer.
+     * @throws IllegalArgumentException if bufferSize is less than 1 or not a power of 2
+     * @see MultiProducerSequencer
+     */
+    public static <E> RingBuffer<E> createMultiProducer(
+        final EventFactory<E> factory,
+        final int bufferSize,
+        final WaitStrategy waitStrategy,
+        final ProducerWaitStrategy producerWaitStrategy)
+    {
+        MultiProducerSequencer sequencer =
+            new MultiProducerSequencer(bufferSize, waitStrategy, producerWaitStrategy);
 
         return new RingBuffer<>(factory, sequencer);
     }
@@ -162,7 +184,29 @@ public final class RingBuffer<E> extends RingBufferFields<E> implements Cursored
         final int bufferSize,
         final WaitStrategy waitStrategy)
     {
-        SingleProducerSequencer sequencer = new SingleProducerSequencer(bufferSize, waitStrategy);
+        return createSingleProducer(factory, bufferSize, waitStrategy, new LowLatencyProducerWaitStrategy());
+    }
+
+    /**
+     * Create a new single producer RingBuffer with the specified wait strategies.
+     *
+     * @param <E> Class of the event stored in the ring buffer.
+     * @param factory              used to create the events within the ring buffer.
+     * @param bufferSize           number of elements to create within the ring buffer.
+     * @param waitStrategy         used to determine how consumers wait for new elements.
+     * @param producerWaitStrategy used to determine how producers wait for capacity.
+     * @return a constructed ring buffer.
+     * @throws IllegalArgumentException if bufferSize is less than 1 or not a power of 2
+     * @see SingleProducerSequencer
+     */
+    public static <E> RingBuffer<E> createSingleProducer(
+        final EventFactory<E> factory,
+        final int bufferSize,
+        final WaitStrategy waitStrategy,
+        final ProducerWaitStrategy producerWaitStrategy)
+    {
+        SingleProducerSequencer sequencer =
+            new SingleProducerSequencer(bufferSize, waitStrategy, producerWaitStrategy);
 
         return new RingBuffer<>(factory, sequencer);
     }
@@ -199,12 +243,35 @@ public final class RingBuffer<E> extends RingBufferFields<E> implements Cursored
         final int bufferSize,
         final WaitStrategy waitStrategy)
     {
+        return create(
+            producerType, factory, bufferSize, waitStrategy, new LowLatencyProducerWaitStrategy());
+    }
+
+    /**
+     * Create a new Ring Buffer with the specified producer type and wait strategies.
+     *
+     * @param <E> Class of the event stored in the ring buffer.
+     * @param producerType         producer type to use {@link ProducerType}.
+     * @param factory              used to create events within the ring buffer.
+     * @param bufferSize           number of elements to create within the ring buffer.
+     * @param waitStrategy         used to determine how consumers wait for new elements.
+     * @param producerWaitStrategy used to determine how producers wait for capacity.
+     * @return a constructed ring buffer.
+     * @throws IllegalArgumentException if bufferSize is less than 1 or not a power of 2
+     */
+    public static <E> RingBuffer<E> create(
+        final ProducerType producerType,
+        final EventFactory<E> factory,
+        final int bufferSize,
+        final WaitStrategy waitStrategy,
+        final ProducerWaitStrategy producerWaitStrategy)
+    {
         switch (producerType)
         {
             case SINGLE:
-                return createSingleProducer(factory, bufferSize, waitStrategy);
+                return createSingleProducer(factory, bufferSize, waitStrategy, producerWaitStrategy);
             case MULTI:
-                return createMultiProducer(factory, bufferSize, waitStrategy);
+                return createMultiProducer(factory, bufferSize, waitStrategy, producerWaitStrategy);
             default:
                 throw new IllegalStateException(producerType.toString());
         }

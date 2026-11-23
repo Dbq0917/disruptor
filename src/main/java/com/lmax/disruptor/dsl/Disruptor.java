@@ -27,6 +27,7 @@ import com.lmax.disruptor.EventTranslatorOneArg;
 import com.lmax.disruptor.EventTranslatorThreeArg;
 import com.lmax.disruptor.EventTranslatorTwoArg;
 import com.lmax.disruptor.ExceptionHandler;
+import com.lmax.disruptor.ProducerWaitStrategy;
 import com.lmax.disruptor.RewindableEventHandler;
 import com.lmax.disruptor.RewindableException;
 import com.lmax.disruptor.RingBuffer;
@@ -98,6 +99,30 @@ public class Disruptor<T>
     {
         this(
             RingBuffer.create(producerType, eventFactory, ringBufferSize, waitStrategy),
+            threadFactory);
+    }
+
+    /**
+     * Create a new Disruptor with separate consumer and producer wait strategies.
+     *
+     * @param eventFactory         the factory to create events in the ring buffer.
+     * @param ringBufferSize       the size of the ring buffer, must be power of 2.
+     * @param threadFactory        a {@link ThreadFactory} to create threads for processors.
+     * @param producerType         the claim strategy to use for the ring buffer.
+     * @param waitStrategy         the wait strategy used by consumers.
+     * @param producerWaitStrategy the wait strategy used by producers when the buffer is full.
+     */
+    public Disruptor(
+            final EventFactory<T> eventFactory,
+            final int ringBufferSize,
+            final ThreadFactory threadFactory,
+            final ProducerType producerType,
+            final WaitStrategy waitStrategy,
+            final ProducerWaitStrategy producerWaitStrategy)
+    {
+        this(
+            RingBuffer.create(
+                producerType, eventFactory, ringBufferSize, waitStrategy, producerWaitStrategy),
             threadFactory);
     }
 

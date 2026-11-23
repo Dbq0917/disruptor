@@ -20,7 +20,6 @@ import com.lmax.disruptor.util.Util;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.locks.LockSupport;
 
 abstract class SingleProducerSequencerPad extends AbstractSequencer
 {
@@ -37,6 +36,14 @@ abstract class SingleProducerSequencerPad extends AbstractSequencer
     {
         super(bufferSize, waitStrategy);
     }
+
+    SingleProducerSequencerPad(
+        final int bufferSize,
+        final WaitStrategy waitStrategy,
+        final ProducerWaitStrategy producerWaitStrategy)
+    {
+        super(bufferSize, waitStrategy, producerWaitStrategy);
+    }
 }
 
 abstract class SingleProducerSequencerFields extends SingleProducerSequencerPad
@@ -44,6 +51,14 @@ abstract class SingleProducerSequencerFields extends SingleProducerSequencerPad
     SingleProducerSequencerFields(final int bufferSize, final WaitStrategy waitStrategy)
     {
         super(bufferSize, waitStrategy);
+    }
+
+    SingleProducerSequencerFields(
+        final int bufferSize,
+        final WaitStrategy waitStrategy,
+        final ProducerWaitStrategy producerWaitStrategy)
+    {
+        super(bufferSize, waitStrategy, producerWaitStrategy);
     }
 
     /**
@@ -80,7 +95,22 @@ public final class SingleProducerSequencer extends SingleProducerSequencerFields
      */
     public SingleProducerSequencer(final int bufferSize, final WaitStrategy waitStrategy)
     {
-        super(bufferSize, waitStrategy);
+        this(bufferSize, waitStrategy, new LowLatencyProducerWaitStrategy());
+    }
+
+    /**
+     * Construct a Sequencer with the selected wait strategies and buffer size.
+     *
+     * @param bufferSize           the size of the buffer that this will sequence over.
+     * @param waitStrategy         for consumers waiting on sequences.
+     * @param producerWaitStrategy for producers waiting for capacity.
+     */
+    public SingleProducerSequencer(
+        final int bufferSize,
+        final WaitStrategy waitStrategy,
+        final ProducerWaitStrategy producerWaitStrategy)
+    {
+        super(bufferSize, waitStrategy, producerWaitStrategy);
     }
 
     /**
@@ -150,13 +180,7 @@ public final class SingleProducerSequencer extends SingleProducerSequencerFields
         {
             cursor.setVolatile(nextValue);  // StoreLoad fence
 
-            long minSequence;
-            while (wrapPoint > (minSequence = Util.getMinimumSequence(gatingSequences, nextValue)))
-            {
-                LockSupport.parkNanos(1L); // TODO: Use waitStrategy to spin?
-            }
-
-            this.cachedValue = minSequence;
+            this.cachedValue = producerWaitStrategy.waitForCapacity(wrapPoint, nextValue, gatingSequences);
         }
 
         this.nextValue = nextSequence;
@@ -257,6 +281,7 @@ public final class SingleProducerSequencer extends SingleProducerSequencerFields
         return "SingleProducerSequencer{" +
                 "bufferSize=" + bufferSize +
                 ", waitStrategy=" + waitStrategy +
+                ", producerWaitStrategy=" + producerWaitStrategy +
                 ", cursor=" + cursor +
                 ", gatingSequences=" + Arrays.toString(gatingSequences) +
                 '}';

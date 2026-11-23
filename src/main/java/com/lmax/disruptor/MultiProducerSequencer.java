@@ -20,7 +20,6 @@ import com.lmax.disruptor.util.Util;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.util.Arrays;
-import java.util.concurrent.locks.LockSupport;
 
 
 /**
@@ -51,7 +50,22 @@ public final class MultiProducerSequencer extends AbstractSequencer
      */
     public MultiProducerSequencer(final int bufferSize, final WaitStrategy waitStrategy)
     {
-        super(bufferSize, waitStrategy);
+        this(bufferSize, waitStrategy, new LowLatencyProducerWaitStrategy());
+    }
+
+    /**
+     * Construct a Sequencer with the selected wait strategies and buffer size.
+     *
+     * @param bufferSize           the size of the buffer that this will sequence over.
+     * @param waitStrategy         for consumers waiting on sequences.
+     * @param producerWaitStrategy for producers waiting for capacity.
+     */
+    public MultiProducerSequencer(
+        final int bufferSize,
+        final WaitStrategy waitStrategy,
+        final ProducerWaitStrategy producerWaitStrategy)
+    {
+        super(bufferSize, waitStrategy, producerWaitStrategy);
         availableBuffer = new int[bufferSize];
         Arrays.fill(availableBuffer, -1);
 
@@ -124,13 +138,8 @@ public final class MultiProducerSequencer extends AbstractSequencer
 
         if (wrapPoint > cachedGatingSequence || cachedGatingSequence > current)
         {
-            long gatingSequence;
-            while (wrapPoint > (gatingSequence = Util.getMinimumSequence(gatingSequences, current)))
-            {
-                LockSupport.parkNanos(1L); // TODO, should we spin based on the wait strategy?
-            }
-
-            gatingSequenceCache.set(gatingSequence);
+            gatingSequenceCache.set(
+                producerWaitStrategy.waitForCapacity(wrapPoint, current, gatingSequences));
         }
 
         return nextSequence;
@@ -278,6 +287,7 @@ public final class MultiProducerSequencer extends AbstractSequencer
         return "MultiProducerSequencer{" +
                 "bufferSize=" + bufferSize +
                 ", waitStrategy=" + waitStrategy +
+                ", producerWaitStrategy=" + producerWaitStrategy +
                 ", cursor=" + cursor +
                 ", gatingSequences=" + Arrays.toString(gatingSequences) +
                 '}';
